@@ -6,7 +6,7 @@ from mfrc522 import SimpleMFRC522
 from picamera import PiCamera
 from pyzbar.pyzbar import decode
 from time import sleep
-from datetime import datetime
+import datetime
 import mysql.connector
 from PIL import Image
 
@@ -31,21 +31,22 @@ class Scanner:
 
 
 class RFid:
-    def __init__(self, betalen, mysql):
+    def __init__(self, betalen, databank):
         self.rfid = SimpleMFRC522()
         while True:
             try:
                 id, text = self.rfid.read()
-                _, Code, geld, = mysql.get_bankkaart(id).fetchall()[0]
+                _, Code, geld, = databank.get_bankkaart(id).fetchall()[0]
                 if geld < betalen:
                     break
-                mysql.update(id, geld - betalen)
+                databank.update(id, geld - betalen)
                 print("Written")
                 eerste_id = id
                 GPIO.cleanup()
                 break
             finally:
                 GPIO.cleanup()
+        GPIO.cleanup()
 
         while True:
             if geld < betalen:
@@ -53,13 +54,14 @@ class RFid:
             try:
                 id, text = self.rfid.read()
                 if eerste_id != id:
-                    _, Code, geld, = mysql.get_bankkaart(id).fetchall()[0]
-                    mysql.update(id, geld + betalen)
+                    _, Code, geld, = databank.get_bankkaart(id).fetchall()[0]
+                    databank.update(id, geld + betalen)
                     print("Written")
                     GPIO.cleanup()
                     break
             finally:
                 GPIO.cleanup()
+        GPIO.cleanup()
 
 
 class Product:
@@ -72,7 +74,7 @@ class Product:
 class Mysql:
     def __init__(self):
         self.query = None
-        self.cnx = mysql.connector.connect(user='', password='',
+        self.cnx = mysql.connector.connect(user='kasper', password='kasper',
                                       host='janickr-XPS-15-9560.local',
                                       database='kassa')
         self.cursor = self.cnx.cursor()
@@ -89,7 +91,7 @@ class Mysql:
     def get_bankkaart(self, kaartID):
         self.cursor.reset()
         self.query = ("""
-                        select * from Bankkaarten
+                        select * from bankkaarten
                         where KaartID = %s
                             """)
         self.cursor.execute(self.query, (kaartID,))
@@ -98,12 +100,11 @@ class Mysql:
     def update(self, id, geld):
         self.cursor.reset()
         self.query = ("""
-                UPDATE Bankkaarten
+                UPDATE bankkaarten
                 SET Geld = %s
-                WHERE KaartID = %S;
+                WHERE KaartID = %s;
         """)
         self.cursor.execute(self.query, (geld, id))
-        return self.cursor
 
     def nieuw_ticket(self):
         self.cursor.reset()
@@ -145,11 +146,13 @@ class Systeem:
 
     def stop_scannen(self):
         self.scanner.stop = True
-        RFid(self.betalen)
+        RFid(self.betalen, self.mysql)
         id = self.mysql.nieuw_ticket()
         for p in self.lijst_producten:
             id_product, _, _, _ = self.mysql.get_product(p.code).fetchall()[0]
             self.mysql.nieuwe_aankoop(id, id_product)
+        self.mysql.cnx.commit()
+        self.stop = True
 
     def nieuwe_klant(self):
         self.button.destroy()
@@ -159,7 +162,7 @@ class Systeem:
 
     def mainloop(self):
         vorig = None
-        while True:
+        while not self.stop:
             if not self.scanner.stop:
                 if self.scanner.gescant:
                     if vorig:
