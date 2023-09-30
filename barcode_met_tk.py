@@ -153,6 +153,23 @@ class Systeem:
             self.mysql.nieuwe_aankoop(id, id_product)
         self.mysql.cnx.commit()
         self.stop = True
+        self.restart()
+
+    def restart(self):
+        for x in self.labels:
+            x.destroy()
+        self.labels = []
+        self.stop = False
+        self.button.destroy()
+        self.button = Button(self.tk, text="Nieuwe klant", command=self.nieuwe_klant)
+        self.button.grid(row=20)
+        self.lijst_producten = []
+        l = Label(self.tk, text="totaal: €0")
+        l.grid(row=0)
+        self.labels.append(l)
+        self.betalen = 0
+        self.mainloop()
+
 
     def nieuwe_klant(self):
         self.button.destroy()
