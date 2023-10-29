@@ -31,37 +31,83 @@ class Scanner:
 
 
 class RFid:
-    def __init__(self, betalen, databank):
+    def __init__(self, betalen, databank, geluidje):
         self.rfid = SimpleMFRC522()
+        moet_betalen = True
         while True:
-            try:
-                id, text = self.rfid.read()
-                _, Code, geld, = databank.get_bankkaart(id).fetchall()[0]
-                if geld < betalen:
-                    break
-                databank.update(id, geld - betalen)
+            id, text = self.rfid.read()
+            geluidje()
+            _, Code, geld, = databank.get_bankkaart(id).fetchall()[0]
+            if geld < betalen:
+                break
+            if self.code() == Code:
                 print("Written")
                 eerste_id = id
-                GPIO.cleanup()
-                break
-            finally:
-                GPIO.cleanup()
-        GPIO.cleanup()
+                geluidje()
+            else:
+                moet_betalen = False
+            break
 
         while True:
             if geld < betalen:
                 break
-            try:
-                id, text = self.rfid.read()
-                if eerste_id != id:
-                    _, Code, geld, = databank.get_bankkaart(id).fetchall()[0]
-                    databank.update(id, geld + betalen)
+            id, text = self.rfid.read()
+            if eerste_id != id:
+                geluidje()
+                _, Code2, geld2, = databank.get_bankkaart(id).fetchall()[0]
+                if self.code() == Code2:
                     print("Written")
-                    GPIO.cleanup()
-                    break
-            finally:
-                GPIO.cleanup()
-        GPIO.cleanup()
+                    geluidje()
+                break
+        if moet_betalen:
+            databank.update(eerste_id, geld - betalen)
+            databank.update(id, geld + betalen)
+
+    def readLine(self, line, characters):
+        GPIO.output(line, GPIO.HIGH)
+        if GPIO.input(12) == 1:
+            GPIO.output(line, GPIO.LOW)
+            return characters[0]
+        if GPIO.input(16) == 1:
+            GPIO.output(line, GPIO.LOW)
+            return characters[1]
+        if GPIO.input(20) == 1:
+            GPIO.output(line, GPIO.LOW)
+            return characters[2]
+        if GPIO.input(21) == 1:
+            GPIO.output(line, GPIO.LOW)
+            return characters[3]
+        GPIO.output(line, GPIO.LOW)
+        return ""
+
+    def code(self):
+        ingegeven = ""
+        volgende_cijfer = True
+        while True:
+            gedrukt = self.readLine(5, ["1", "2", "3", "A"])
+            if gedrukt == "A":
+                volgende_cijfer = True
+            elif volgende_cijfer and gedrukt != "":
+                volgende_cijfer = False
+                ingegeven += gedrukt
+            gedrukt = self.readLine(6, ["4", "5", "6", "B"])
+            if volgende_cijfer and gedrukt != "":
+                volgende_cijfer = False
+                ingegeven += gedrukt
+            gedrukt = self.readLine(13, ["7", "8", "9", "C"])
+            if volgende_cijfer and gedrukt != "":
+                volgende_cijfer = False
+                ingegeven += gedrukt
+            gedrukt = self.readLine(19, ["*", "0", "#", "D"])
+            if gedrukt == "*":
+                return ingegeven
+            elif gedrukt == "#":
+                ingegeven = ""
+                gedrukt = ""
+            if volgende_cijfer and gedrukt != "":
+                volgende_cijfer = False
+                ingegeven += gedrukt
+            sleep(0.05)
 
 
 class Product:
@@ -142,11 +188,36 @@ class Systeem:
         l.grid(row=0)
         self.labels.append(l)
         self.betalen = 0
+        GPIO.setwarnings(False)
+        GPIO.setmode(GPIO.BCM)
+        GPIO.setup(4, GPIO.OUT, initial=GPIO.LOW)
+        GPIO.setup(5, GPIO.OUT)
+        GPIO.setup(6, GPIO.OUT)
+        GPIO.setup(13, GPIO.OUT)
+        GPIO.setup(19, GPIO.OUT)
+
+        GPIO.setup(12, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+        GPIO.setup(16, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+        GPIO.setup(20, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+        GPIO.setup(21, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
         self.mainloop()
+
+    def geluidje(self):
+        GPIO.output(4, GPIO.HIGH)
+        sleep(0.05)
+        GPIO.output(4, GPIO.LOW)
+        sleep(0.05)
+        GPIO.output(4, GPIO.HIGH)
+        sleep(0.05)
+        GPIO.output(4, GPIO.LOW)
+        sleep(0.05)
+        GPIO.output(4, GPIO.HIGH)
+        sleep(0.05)
+        GPIO.output(4, GPIO.LOW)
 
     def stop_scannen(self):
         self.scanner.stop = True
-        RFid(self.betalen, self.mysql)
+        RFid(self.betalen, self.mysql, self.geluidje)
         id = self.mysql.nieuw_ticket()
         for p in self.lijst_producten:
             id_product, _, _, _ = self.mysql.get_product(p.code).fetchall()[0]
@@ -193,6 +264,7 @@ class Systeem:
                             l.grid(row=0)
                             self.labels.append(l)
                             self.labels[0].config(text=f"totaal: €{self.betalen}")
+                            self.geluidje()
                     else:
                         self.lijst_producten.append(self.scanner.gescant)
                         vorig = self.scanner.gescant
@@ -203,6 +275,7 @@ class Systeem:
                         l.grid(row=0)
                         self.labels.append(l)
                         self.labels[0].config(text=f"totaal: €{self.betalen}")
+                        self.geluidje()
             self.tk.update()
             self.tk.update_idletasks()
             sleep(0.02)
