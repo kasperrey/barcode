@@ -121,7 +121,8 @@ class Mysql:
     def __init__(self):
         self.query = None
         self.cnx = mysql.connector.connect(user='kasper', password='kasper',
-                                      host='janickr-XPS-15-9560.local',
+                                   #   host='janickr-XPS-15-9560.local',
+                                      host='192.168.1.17',
                                       database='kassa')
         self.cursor = self.cnx.cursor()
 
